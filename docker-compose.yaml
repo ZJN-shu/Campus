@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build: .
+    container_name: campus-backend
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - DB_URL=jdbc:mysql://mysql:3306/campus1?useSSL=false&serverTimezone=UTC&characterEncoding=utf8
+      - DB_USERNAME=root
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ES_URI=http://elasticsearch:9200
+      - OSS_ACCESS_KEY_ID=${OSS_ACCESS_KEY_ID}
+      - OSS_ACCESS_KEY_SECRET=${OSS_ACCESS_KEY_SECRET}
+      - SBA_URL=http://sba:8090
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # 前端（Nginx 托管）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: campus-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # MySQL
+  mysql:
+    image: mysql:8.0
+    container_name: campus-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=campus1
+      - MYSQL_CHARSET=utf8mb4
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: campus-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # Elasticsearch
+  elasticsearch:
+    image: elasticsearch:7.12.1
+    container_name: campus-es
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # Spring Boot Admin（后台管理）
+  sba:
+    image: codecentric/spring-boot-admin:3.1.5
+    container_name: campus-sba
+    ports:
+      - "8090:8080"
+    environment:
+      - SPRING_SECURITY_USER_NAME=admin
+      - SPRING_SECURITY_USER_PASSWORD=${SBA_PASSWORD}
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # Prometheus（监控数据采集）
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: campus-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # Grafana（监控可视化）
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: campus-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+  # 数据库定时备份
+  backup:
+    image: mysql:8.0
+    container_name: campus-backup
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - backup-data:/backups
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=campus1
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD}
+    entrypoint: >
+      bash -c "chmod +x /backup.sh &&
+      echo '0 2 * * * /backup.sh >> /var/log/backup.log 2>&1' > /etc/crontab &&
+      crontab /etc/crontab &&
+      echo '备份服务已启动，每天凌晨2点执行' &&
+      cron -f"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - campus-net
+
+volumes:
+  mysql-data:
+  redis-data:
+  es-data:
+  prometheus-data:
+  grafana-data:
+  backup-data:
+
+networks:
+  campus-net:
+    driver: bridge

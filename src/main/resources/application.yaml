@@ -1,0 +1,65 @@
+server:
+  port: 8081
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+spring:
+  application:
+    name: campus
+  profiles:
+    active: dev  # 默认开发环境，生产环境通过 --spring.profiles.active=prod 切换
+
+  jackson:
+    default-property-inclusion: non_null
+
+  # Flyway 数据库版本管理
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+    table: flyway_schema_history
+    validate-on-migrate: true
+
+# Actuator + Prometheus 监控
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,env,loggers,flyway
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    export:
+      prometheus:
+        enabled: true
+  info:
+    os: true
+    java: true
+    env: true
+
+mybatis-plus:
+  type-aliases-package: com.campus.entity
+  mapper-locations: classpath:mapper/*.xml
+
+elasticsearch:
+  product: campus_product
+  post: campus_post
+  user: campus_user
+
+# OSS 公共配置（AK/SK 通过环境变量注入）
+campus:
+  oss:
+    endpoint: ${OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    access-key-id: ${OSS_ACCESS_KEY_ID:your_access_key_id}
+    access-key-secret: ${OSS_ACCESS_KEY_SECRET:your_access_key_secret}
+    bucket-name: ${OSS_BUCKET_NAME:your_bucket_name}
+    url-prefix: ${OSS_URL_PREFIX:https://your_bucket_name.oss-cn-beijing.aliyuncs.com}

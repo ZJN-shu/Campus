@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.campus.mapper.ErrandTaskMapper">
+
+    <select id="selectNearbyTasks" resultType="com.campus.entity.ErrandTask">
+        SELECT * FROM tb_errand_task
+        WHERE status = 1
+          AND (6371 * acos(cos(radians(#{latitude})) * cos(radians(latitude))
+                               * cos(radians(longitude) - radians(#{longitude})) + sin(radians(#{latitude}))
+                               * sin(radians(latitude)))) &lt; #{radius}
+        ORDER BY create_time DESC
+    </select>
+</mapper>

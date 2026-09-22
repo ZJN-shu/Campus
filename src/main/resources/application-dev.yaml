@@ -1,0 +1,35 @@
+# ==================== 开发环境配置 ====================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/campus1?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=utf8
+    username: root
+    password: ${DB_PASSWORD:your_mysql_password}
+  elasticsearch:
+    uris: http://${ES_HOST:localhost}:9200
+    connection-timeout: 5000
+    socket-timeout: 30000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+      password: ${REDIS_PASSWORD:your_redis_password}
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 10
+          min-idle: 1
+          time-between-eviction-runs: 10s
+  # Spring Boot Admin 客户端（开发环境默认关闭，本地一般不运行 SBA）
+  boot:
+    admin:
+      client:
+        enabled: false
+
+logging:
+  level:
+    com.campus: debug
+
+# 开发环境万能验证码（生产环境禁止使用）
+campus:
+  dev-code: 888888

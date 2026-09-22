@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.campus.mapper.ProductMapper">
+
+    <select id="queryByCategory" resultType="com.campus.entity.Product">
+        SELECT * FROM tb_product
+        WHERE status = 1
+        <if test="category != null and category != '' and category != 'all'">
+            AND category = #{category}
+        </if>
+        <if test="minPrice != null">
+            AND price >= #{minPrice}
+        </if>
+        <if test="maxPrice != null">
+            AND price &lt;= #{maxPrice}
+        </if>
+        <choose>
+            <when test="sort == 'price_asc'">
+                ORDER BY price ASC
+            </when>
+            <when test="sort == 'price_desc'">
+                ORDER BY price DESC
+            </when>
+            <when test="sort == 'time_desc'">
+                ORDER BY create_time DESC
+            </when>
+            <otherwise>
+                ORDER BY create_time DESC
+            </otherwise>
+        </choose>
+    </select>
+</mapper>

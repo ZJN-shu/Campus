@@ -1,0 +1,44 @@
+# ==================== 生产环境配置 ====================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/campus1?useSSL=true&serverTimezone=UTC&characterEncoding=utf8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+  elasticsearch:
+    uris: ${ES_URI:http://localhost:9200}
+    connection-timeout: 5000
+    socket-timeout: 30000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+          time-between-eviction-runs: 10s
+  # Spring Boot Admin 客户端（生产环境）
+  boot:
+    admin:
+      client:
+        url: ${SBA_URL:http://sba:8090}
+        enabled: true
+        instance:
+          service-url: http://backend:8081
+
+logging:
+  level:
+    com.campus: info
+  file:
+    name: /var/log/campus/campus.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 30
+
+# 生产环境禁止万能验证码（不配置 dev-code）
+campus:
+  dev-code:

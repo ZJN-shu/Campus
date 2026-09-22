@@ -1,0 +1,115 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "🟢 JVM 内存使用",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [{
+        "expr": "jvm_memory_used_bytes{application=\"campus\", area=\"heap\"}",
+        "legendFormat": "{{id}}"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "thresholds": { "steps": [{"color":"green","value":null},{"color":"yellow","value":268435456},{"color":"red","value":536870912}] } }
+      }
+    },
+    {
+      "title": "📊 HTTP 请求速率 (QPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [{
+        "expr": "rate(http_server_requests_seconds_count{application=\"campus\"}[1m])",
+        "legendFormat": "{{method}} {{uri}} {{status}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "title": "⏱️ HTTP 请求耗时 P95",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{application=\"campus\"}[5m]))",
+        "legendFormat": "P95 {{method}} {{uri}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "title": "🔴 HTTP 5xx 错误率",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [{
+        "expr": "sum(rate(http_server_requests_seconds_count{application=\"campus\", status=~\"5..\"}[5m]))",
+        "legendFormat": "5xx errors/s"
+      }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": "red" } }
+    },
+    {
+      "title": "📈 业务指标 - 帖子/订单/任务",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "campus_post_publish_total", "legendFormat": "帖子发布" },
+        { "expr": "campus_order_create_total", "legendFormat": "订单创建" },
+        { "expr": "campus_errand_task_total", "legendFormat": "跑腿任务" },
+        { "expr": "campus_file_upload_total", "legendFormat": "文件上传" }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "title": "🌐 WebSocket 在线用户数",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 6 },
+      "targets": [{ "expr": "campus_websocket_online", "legendFormat": "在线用户" }],
+      "fieldConfig": { "defaults": { "color": "blue", "thresholds": { "steps": [{"color":"blue","value":null}] } } }
+    },
+    {
+      "title": "🗄️ 消息队列处理耗时 P99",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 6 },
+      "targets": [{
+        "expr": "histogram_quantile(0.99, rate(campus_mq_process_duration_bucket[5m]))",
+        "legendFormat": "MQ P99"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "title": "💾 Redis 连接池",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "redis_pool_active", "legendFormat": "活跃连接" },
+        { "expr": "redis_pool_idle", "legendFormat": "空闲连接" }
+      ]
+    },
+    {
+      "title": "🧵 JVM 线程数",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 12 },
+      "targets": [{
+        "expr": "jvm_threads_live_threads{application=\"campus\"}",
+        "legendFormat": "活跃线程"
+      }]
+    },
+    {
+      "title": "🔄 GC 暂停时间",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 12 },
+      "targets": [{
+        "expr": "rate(jvm_gc_pause_seconds_sum{application=\"campus\"}[1m])",
+        "legendFormat": "{{action}} {{cause}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["campus", "spring-boot"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "校园平台监控大盘",
+  "uid": "campus-overview"
+}

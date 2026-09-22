@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java -version)",
+      "Bash(ping -n 1 -w 2000 101.201.100.137)",
+      "Bash(.\\\\mvnw.cmd --version)",
+      "Bash(mysql -u root -p1234 -h 127.0.0.1 -e \"SELECT 1 AS test;\")",
+      "Bash(mvn --version)",
+      "Bash(cmd.exe /c \"mvn --version\")",
+      "Bash(mysql *)",
+      "Bash(mvn test *)",
+      "Bash(rg ==========|总请求数|成功|失败|耗时|QPS|平均延迟|P50|P90|P99|综合 QPS|总成功|各场景 *)",
+      "Bash(dir /s /b \"D:\\\\Code\\\\campus - 1\\\\*.*\")",
+      "Bash(dir /s /b \"D:\\\\Code\\\\campus - 1\\\\*.java\")",
+      "Bash(findstr /v \"target\\\\\\\\\")"
+    ]
+  }
+}
