@@ -22,22 +22,38 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// 仅确认当前请求使用的凭证失效时清理会话，避免旧请求退出新会话。
+function requestError(response, fallback) {
+  const status = response?.status;
+  const message = status === 401 ? '登录已过期，请重新登录'
+    : status === 403 ? '没有权限执行此操作'
+    : status >= 500 ? '服务暂时不可用，请稍后重试'
+    : (response?.data?.errorMsg || fallback);
+  const error = new Error(message);
+  error.status = status;
+  error.traceId = response?.headers?.['x-trace-id'];
+  if (status === 401) {
+    const sentToken = response?.config?.headers?.authorization;
+    if (sentToken && sentToken === localStorage.getItem('token')) {
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event('campus:session-expired'));
+    }
+  }
+  return error;
+}
+
 // 响应拦截器
 api.interceptors.response.use(
   (response) => {
     const { data } = response;
     if (data.success === false) {
-      return Promise.reject(new Error(data.errorMsg || '请求失败'));
+      return Promise.reject(requestError(response, '请求失败')); 
     }
     return data;
   },
   (error) => {
-    // 401 时清除本地 token，但不强制跳转，交给页面/路由自行处理，
-    // 同时让请求 reject，使得 useApiData 能回退到 mock 数据保证 UI 可用
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-    }
-    return Promise.reject(error);
+    return Promise.reject(requestError(error.response,
+      error.code === 'ECONNABORTED' ? '请求超时，请重试' : '网络连接失败，请检查网络后重试'));
   }
 );
 

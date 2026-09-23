@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import useApiData from '../hooks/useApiData';
 import { errandApi } from '../services';
-import { mockTaskDetail, mockTasks } from '../services/mockData';
 import { useAuth } from '../context/AuthContext';
-import { Loading } from '../components/ui';
+import { Loading, Empty, DataStatus, ErrorNotice } from '../components/ui';
 
 // 后端任务状态：1-待接单 2-进行中（已接单） 3-已完成 5-已取消
 const statusMap = {
@@ -18,51 +17,64 @@ const fmtTime = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '—');
 
 export default function ErrandDetail() {
   const { id } = useParams();
-  const { user, isAuthed } = useAuth();
+  const { user, isAuthed, token } = useAuth();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [actionError, setActionError] = useState(null);
+  const actionLock = useRef(false);
   const [score, setScore] = useState(5);
   const [evalText, setEvalText] = useState('');
   const [evaluated, setEvaluated] = useState(false);
 
-  const { data: task, loading, refetch } = useApiData(
+  const state = useApiData(
     () => errandApi.getTaskDetail(id),
-    { ...mockTaskDetail, id: Number(id) },
-    [id],
+    null,
+    [id, token],
     (payload) => payload || null
   );
 
-  // 轮询实时刷新：任务处于活跃状态（待接单/进行中）时每 5 秒拉取最新状态
-  const pollingRef = useRef(null);
+  const { data: task, loading, refetch, lastUpdatedAt } = state;
+  const taskStatus = task?.status;
+  // 上次请求完成后再安排轮询，避免慢请求相互覆盖。
   useEffect(() => {
-    if (!task) return;
-    const isActive = task.status === 1 || task.status === 2;
-    if (!isActive) {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      return;
-    }
-    pollingRef.current = setInterval(() => refetch(), 5000);
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-  }, [task?.status, refetch]);
+    if (taskStatus !== 1 && taskStatus !== 2) return;
+    let stopped = false;
+    let timer;
+    const poll = async () => {
+      if (!document.hidden) await refetch();
+      if (!stopped) timer = setTimeout(poll, 5000);
+    };
+    timer = setTimeout(poll, 5000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [taskStatus, refetch]);
 
   // 其它可接任务（用于底部推荐）
-  const { data: others } = useApiData(
+  const othersState = useApiData(
     () => errandApi.getNearbyTasks(),
-    mockTasks,
+    [],
     [],
     (payload) => (Array.isArray(payload) ? payload : payload?.records || payload?.list || [])
   );
 
   const run = async (fn, okText) => {
+    if (actionLock.current) return;
+    if (!isAuthed) {
+      setActionError(Object.assign(new Error('请先登录后操作'), { status: 401 }));
+      return;
+    }
+    actionLock.current = true;
     setMsg('');
+    setActionError(null);
     setBusy(true);
     try {
       await fn();
       setMsg(okText || '操作成功');
-      refetch();
+      const result = await refetch();
+      if (!result.success) setMsg(`${okText || '操作成功'}，但最新状态获取失败，请刷新确认，不要重复操作。`);
     } catch (e) {
-      setMsg(e?.message || '操作失败，请先登录或稍后再试');
+      setActionError(e);
     } finally {
+      actionLock.current = false;
       setBusy(false);
     }
   };
@@ -76,30 +88,34 @@ export default function ErrandDetail() {
       setEvaluated(true);
     }, '评价成功，感谢反馈！');
 
-  if (loading) {
+  if (loading && !lastUpdatedAt) {
     return (
-      <div className="w-full mx-auto px-6 md:px-10 2xl:px-[6vw] py-14">
+      <div className="page-container">
         <Loading rows={2} />
       </div>
     );
   }
 
-  const st = statusMap[task.status] || statusMap[1];
+  if (!task) return <div className="page-container"><DataStatus {...state} />{!state.error && <Empty title="任务不存在或已删除" />}</div>;
+  const st = statusMap[task.status] || { label: '状态未知', color: 'bg-gray-100 text-gray-600' };
   const publisher = task.publisherName || '同学';
   const isPublisher = isAuthed && user?.id != null && Number(task.publisherId) === Number(user.id);
   const isAcceptor = isAuthed && user?.id != null && task.acceptorId != null && Number(task.acceptorId) === Number(user.id);
-  const related = others.filter((t) => String(t.id) !== String(id)).slice(0, 3);
+  const related = othersState.data.filter((t) => String(t.id) !== String(id)).slice(0, 3);
 
   return (
-    <div className="w-full mx-auto px-6 md:px-10 2xl:px-[6vw] py-12">
+    <div className="page-container">
       <Link to="/errand" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 mb-8 transition-colors">
         ← 返回跑腿
       </Link>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+      <DataStatus {...state} label="任务详情" />
+      <ErrorNotice error={actionError} />
+      {msg && <p role="status" className="p-4 mb-4 bg-green-50 text-green-800 text-sm">{msg}</p>}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-6">
         {/* 主内容 */}
-        <div className="lg:col-span-2 space-y-8">
-          <section className="card p-8 md:p-10">
+        <div className="min-w-0 space-y-6">
+          <section className="card p-5 sm:p-6">
             <div className="flex items-center gap-2.5 mb-5 flex-wrap">
               <span className={`tag ${st.color}`}>{st.label}</span>
               {task.category && <span className="tag bg-gray-50 text-gray-500">{task.category}</span>}
@@ -107,7 +123,7 @@ export default function ErrandDetail() {
             <h1 className="text-2xl md:text-3xl font-bold text-gray-800 leading-tight mb-6">{task.title}</h1>
             <div className="flex items-baseline gap-3 mb-8">
               <span className="text-sm text-gray-400">赏金</span>
-              <span className="text-4xl font-bold text-primary-500">¥{task.reward}</span>
+              <span className="text-4xl font-bold text-primary-500">¥{task.reward ?? '—'}</span>
             </div>
 
             <div className="text-gray-600 leading-loose whitespace-pre-line text-[15px] mb-8">
@@ -127,7 +143,7 @@ export default function ErrandDetail() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-5 mt-6 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 text-sm">
               <div>
                 <span className="text-gray-400">截止时间：</span>
                 <span className="text-gray-600 font-medium">{fmtTime(task.deadline)}</span>
@@ -140,8 +156,8 @@ export default function ErrandDetail() {
           </section>
 
           {/* 评价区（已完成时可评价） */}
-          {task.status === 3 && (
-            <section className="card p-8">
+          {task.status === 3 && (isPublisher || isAcceptor) && (
+            <section className="card p-5 sm:p-6">
               <h2 className="text-base font-bold text-gray-800 mb-6">⭐ 评价本次服务</h2>
               {evaluated ? (
                 <p className="text-sm text-campus-500">已评价，感谢你的反馈！</p>
@@ -152,6 +168,8 @@ export default function ErrandDetail() {
                       <button
                         key={n}
                         onClick={() => setScore(n)}
+                        aria-label={`${n} 分`}
+                        aria-pressed={score === n}
                         className={`text-2xl transition-transform ${n <= score ? 'opacity-100 scale-110' : 'opacity-30 grayscale'}`}
                       >
                         ⭐
@@ -159,7 +177,9 @@ export default function ErrandDetail() {
                     ))}
                     <span className="text-sm text-gray-400 ml-2">{score} 分</span>
                   </div>
+                  <label htmlFor="evaluation-content" className="sr-only">评价内容</label>
                   <textarea
+                    id="evaluation-content"
                     rows={3}
                     value={evalText}
                     onChange={(e) => setEvalText(e.target.value)}
@@ -175,6 +195,7 @@ export default function ErrandDetail() {
           )}
 
           {/* 相关推荐 */}
+          <DataStatus {...othersState} count={related.length} label="其他已加载任务" />
           {related.length > 0 && (
             <section>
               <h2 className="section-title mb-6">你可能也想接</h2>
@@ -207,7 +228,7 @@ export default function ErrandDetail() {
               </div>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-gray-700 truncate">{publisher}</div>
-                <div className="text-xs text-gray-400 mt-0.5">校园认证用户</div>
+                <div className="text-xs text-gray-400 mt-0.5">任务发布者</div>
               </div>
             </div>
 
@@ -217,12 +238,8 @@ export default function ErrandDetail() {
               </div>
             )}
 
-            {msg && (
-              <div className="text-sm px-4 py-3 mb-5 bg-primary-50 text-primary-600">{msg}</div>
-            )}
-
             <div className="space-y-3">
-              {task.status === 1 && !isPublisher && (
+              {task.status === 1 && isAuthed && !isPublisher && (
                 <button onClick={handleAccept} disabled={busy} className="btn-primary w-full">
                   {busy ? '处理中...' : '🙋 立即接单'}
                 </button>

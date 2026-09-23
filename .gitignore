@@ -48,3 +48,7 @@ logs/
 
 ### Docker ###
 docker-compose.override.yml
+
+### Docs (local only) ###
+docs/
+

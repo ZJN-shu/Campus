@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { messageApi } from '../services';
+import useApiData from '../hooks/useApiData';
 
 const navItems = [
   { path: '/', label: '首页', icon: '🏠' },
@@ -14,22 +15,36 @@ const navItems = [
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, isAuthed, logout } = useAuth();
+  const { user, token, isAuthed, logout } = useAuth();
+  const [loggingOut, setLoggingOut] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [unread, setUnread] = useState(0);
-
-  // 拉取未读消息数（后端不可用时静默忽略）
+  const unreadState = useApiData(
+    () => isAuthed ? messageApi.getUnreadCount() : Promise.resolve({ data: null }),
+    null,
+    [token, location.pathname]
+  );
+  const unread = unreadState.data == null ? null : Number(unreadState.data);
+  const { refetch: refreshUnread } = unreadState;
   useEffect(() => {
-    if (!isAuthed) {
-      setUnread(0);
-      return;
+    const update = () => refreshUnread();
+    window.addEventListener('campus:messages-updated', update);
+    return () => window.removeEventListener('campus:messages-updated', update);
+  }, [refreshUnread]);
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate('/login');
+    } catch {
+      navigate('/login', { state: { notice: '本地已退出，服务端退出未确认。' } });
+    } finally {
+      setLoggingOut(false);
+      setShowMobileMenu(false);
     }
-    messageApi
-      .getUnreadCount()
-      .then((res) => setUnread(Number(res?.data) || 0))
-      .catch(() => setUnread(0));
-  }, [isAuthed, location.pathname]);
+  };
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -43,8 +58,8 @@ export default function Navbar() {
   const avatarChar = user?.nickName?.[0] || 'C';
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
-      <div className="w-full mx-auto px-6 md:px-10 2xl:px-[6vw]">
+    <nav aria-label="主导航" className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-200">
+      <div className="nav-container">
         <div className="flex items-center justify-between h-[68px]">
           {/* Left: Logo + Nav */}
           <div className="flex items-center gap-10">
@@ -57,11 +72,12 @@ export default function Navbar() {
 
             <div className="hidden lg:flex items-center gap-1">
               {navItems.map((item) => {
-                const isActive = location.pathname === item.path;
+                const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(`${item.path}/`));
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`px-4 py-2 text-sm font-medium transition-all ${
                       isActive
                         ? 'bg-primary-50 text-primary-600'
@@ -85,6 +101,7 @@ export default function Navbar() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="搜索好物..."
+                  aria-label="搜索二手商品"
                   className="w-44 pl-9 pr-4 py-2 bg-gray-50 border-0 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200 focus:bg-white transition-all"
                 />
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">🔍</span>
@@ -93,9 +110,9 @@ export default function Navbar() {
 
             {isAuthed ? (
               <>
-                <Link to="/messages" className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors">
+                <Link to="/messages" aria-label={unreadState.error ? '消息通知，未读数量暂不可用' : `消息通知${unread != null ? `，${unread} 条未读` : ''}`} title={unreadState.error ? '未读数量获取失败，请进入消息页重试' : '消息通知'} className="relative p-2 text-gray-600 transition-colors">
                   <span className="text-lg">🔔</span>
-                  {unread > 0 && (
+                  {unreadState.error ? <span className="absolute -top-1 right-0 text-xs text-red-600">!</span> : unread > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-pink-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                       {unread > 99 ? '99+' : unread}
                     </span>
@@ -121,7 +138,10 @@ export default function Navbar() {
             )}
 
             <button
-              className="lg:hidden p-2 text-gray-400"
+              className="lg:hidden p-2 text-gray-600"
+              aria-label={showMobileMenu ? '收起导航菜单' : '展开导航菜单'}
+              aria-expanded={showMobileMenu}
+              aria-controls="mobile-navigation"
               onClick={() => setShowMobileMenu(!showMobileMenu)}
             >
               <span className="text-xl">{showMobileMenu ? '✕' : '☰'}</span>
@@ -132,7 +152,7 @@ export default function Navbar() {
 
       {/* Mobile Menu */}
       {showMobileMenu && (
-        <div className="lg:hidden bg-white border-t border-gray-100 animate-slide-up">
+        <div id="mobile-navigation" className="lg:hidden bg-white border-t border-gray-100 animate-slide-up">
           <div className="px-6 py-5 space-y-1">
             <form onSubmit={handleSearch} className="mb-4">
               <input
@@ -140,15 +160,17 @@ export default function Navbar() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="搜索好物..."
+                aria-label="搜索二手商品"
                 className="input"
               />
             </form>
             {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
+              const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(`${item.path}/`));
               return (
                 <Link
                   key={item.path}
                   to={item.path}
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => setShowMobileMenu(false)}
                   className={`flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors ${
                     isActive ? 'bg-primary-50 text-primary-600' : 'text-gray-600 hover:bg-gray-50'
@@ -161,11 +183,8 @@ export default function Navbar() {
             })}
             {isAuthed && (
               <button
-                onClick={() => {
-                  logout();
-                  setShowMobileMenu(false);
-                  navigate('/login');
-                }}
+                onClick={handleLogout}
+                disabled={loggingOut}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-500 hover:bg-gray-50"
               >
                 <span>🚪</span>

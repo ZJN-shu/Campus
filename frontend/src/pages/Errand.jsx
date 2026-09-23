@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import useApiData from '../hooks/useApiData';
 import { errandApi } from '../services';
-import { mockTasks } from '../services/mockData';
-import { Empty } from '../components/ui';
+import { useAuth } from '../context/AuthContext';
+import { Empty, DataStatus, PageHeader, Modal, ErrorNotice, LoginPrompt } from '../components/ui';
 
 const taskCategories = ['全部', '取件', '带饭', '代购', '其他'];
 // 后端任务状态：1-待接单 2-进行中（已接单） 3-已完成 5-已取消
@@ -16,59 +16,55 @@ const statusMap = {
 
 export default function Errand() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { isAuthed, token } = useAuth();
+  const [notice, setNotice] = useState('');
   const tab = searchParams.get('tab');
   const personal = tab === 'published' || tab === 'accepted';
   const [activeCategory, setActiveCategory] = useState('全部');
   const [showPublishModal, setShowPublishModal] = useState(false);
 
-  const { data: tasks, loading, refetch } = useApiData(
+  const state = useApiData(
     () => {
+      if (personal && !isAuthed) return Promise.resolve({ data: [] });
       if (tab === 'published') return errandApi.getMyPublished(1);
       if (tab === 'accepted') return errandApi.getMyAccepted(1);
       return errandApi.getNearbyTasks();
     },
-    personal ? [] : mockTasks,
-    [tab],
+    [],
+    [tab, token],
     (payload) => (Array.isArray(payload) ? payload : payload?.records || payload?.list || [])
   );
 
+  const { data: tasks, loading, refetch, error, lastUpdatedAt } = state;
   const filtered =
-    activeCategory === '全部'
+    personal || activeCategory === '全部'
       ? tasks
       : tasks.filter((t) => t.category === activeCategory);
 
+  if (personal && !isAuthed) return <div className="page-container"><LoginPrompt /></div>;
+
   return (
-    <div className="w-full mx-auto px-6 md:px-10 2xl:px-[6vw] py-14">
+    <div className="page-container">
       {/* Header */}
-      <div className="flex items-center justify-between mb-12">
-        <div>
-          {personal && (
-            <Link to="/errand" className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600 mb-3 transition-colors">
-              ← 返回全部任务
-            </Link>
-          )}
-          <h1 className="text-2xl font-bold text-gray-800">
-            {tab === 'published' ? '我发布的任务' : tab === 'accepted' ? '我接取的任务' : '跑腿任务'}
-          </h1>
-          <p className="text-sm text-gray-400 mt-2">
-            {tab === 'published' ? '管理你发布的跑腿需求' : tab === 'accepted' ? '查看你正在处理的任务' : '发布任务，找人帮忙'}
-          </p>
-        </div>
-        <button
-          onClick={() => setShowPublishModal(true)}
-          className="px-6 py-2.5 bg-gradient-to-r from-campus-400 to-sky-400 text-white text-sm font-semibold hover:shadow-lg hover:-translate-y-0.5 transition-all"
-        >
-          📋 发布任务
-        </button>
-      </div>
+      <PageHeader title={tab === 'published' ? '我发布的任务' : tab === 'accepted' ? '我接取的任务' : '跑腿任务'} description="看清任务状态、路线和截止时间，再安排你的校园行程">
+        <button onClick={() => isAuthed ? setShowPublishModal(true) : navigate('/login')} className="btn-primary">📋 发布任务</button>
+      </PageHeader>
+      <nav aria-label="跑腿视图" className="flex flex-wrap gap-3 mb-4">
+        {[['/errand', '全部任务', !personal], ['/errand?tab=published', '我发布的', tab === 'published'], ['/errand?tab=accepted', '我接取的', tab === 'accepted']].map(([to, label, active]) => (
+          <Link key={to} to={to} aria-current={active ? 'page' : undefined} className={`px-4 py-2 text-sm border ${active ? 'bg-gray-800 text-white border-gray-800' : 'bg-white border-gray-200 text-gray-600'}`}>{label}</Link>
+        ))}
+      </nav>
+      {notice && <p role="status" className="bg-green-50 text-green-800 p-3 mb-4 text-sm">{notice}</p>}
 
       {/* Filters */}
       {!personal && (
-        <div className="flex flex-wrap gap-2.5 mb-12">
+        <div className="card p-4 flex flex-wrap gap-2.5 mb-4">
           {taskCategories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
+                            aria-pressed={activeCategory === cat}
               className={`px-5 py-2 text-sm font-medium transition-all ${
                 activeCategory === cat
                   ? 'bg-gray-800 text-white shadow-sm'
@@ -82,8 +78,9 @@ export default function Errand() {
       )}
 
       {/* Task Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+      <DataStatus {...state} count={filtered.length} label={personal ? '我的任务 · 已加载范围' : `${activeCategory} · 已加载范围`} />
+      {loading && !lastUpdatedAt ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="card p-8">
               <div className="skeleton h-4 w-1/2 mb-5" />
@@ -92,19 +89,19 @@ export default function Errand() {
             </div>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : error && !lastUpdatedAt ? null : filtered.length === 0 ? (
         <Empty
           icon="🏃"
           title={tab === 'published' ? '你还没有发布过任务' : tab === 'accepted' ? '你还没有接取任务' : '暂无任务'}
           desc={tab === 'published' ? '点击右上角发布你的第一个跑腿需求吧～' : tab === 'accepted' ? '去任务广场看看，接一单赚零花钱' : '换个分类看看，或发布一个新任务'}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {filtered.map((task) => {
-            const st = statusMap[task.status] || statusMap[1];
+            const st = statusMap[task.status] || { label: '状态未知', color: 'bg-gray-100 text-gray-600' };
             const publisher = task.publisherName || '同学';
             return (
-              <Link key={task.id} to={`/errand/${task.id}`} className="card card-hover p-8 group">
+              <Link key={task.id} to={`/errand/${task.id}`} className="card card-hover p-5 sm:p-6 group">
                 <div className="flex items-start justify-between mb-5 gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -115,7 +112,7 @@ export default function Errand() {
                       {task.title}
                     </h3>
                   </div>
-                  <span className="text-2xl font-bold text-primary-500 shrink-0">¥{task.reward}</span>
+                  <span className="text-2xl font-bold text-primary-500 shrink-0">¥{task.reward ?? '—'}</span>
                 </div>
 
                 <p className="text-sm text-gray-400 leading-relaxed mb-5 line-clamp-2">{task.description}</p>
@@ -133,9 +130,7 @@ export default function Errand() {
                     </div>
                     <span className="text-sm text-gray-500">{publisher}</span>
                   </div>
-                  {task.deadline && (
-                    <span className="text-xs text-primary-500 font-medium">⏰ {String(task.deadline).slice(5, 16).replace('T', ' ')}</span>
-                  )}
+                  <span className="text-xs text-primary-600 font-medium">截止：{task.deadline ? String(task.deadline).slice(5, 16).replace('T', ' ') : '未填写'}</span>
                 </div>
               </Link>
             );
@@ -150,7 +145,8 @@ export default function Errand() {
           onClose={() => setShowPublishModal(false)}
           onPublished={() => {
             setShowPublishModal(false);
-            refetch();
+            setNotice('发布成功；正在获取最新列表。');
+            refetch().then((result) => setNotice(result.success ? '发布成功，列表已更新。' : '发布成功，但列表更新失败，请重试刷新；无需再次发布。'));
           }}
         />
       )}
@@ -174,9 +170,10 @@ function PublishTaskModal({ categories, onClose, onPublished }) {
   const update = (key) => (e) => setForm({ ...form, [key]: e.target.value });
 
   const handleSubmit = async () => {
+    if (submitting) return;
     setError('');
-    if (!form.title.trim() || !form.reward) {
-      setError('请填写任务标题和赏金');
+    if (!form.title.trim() || !Number.isFinite(Number(form.reward)) || Number(form.reward) <= 0) {
+      setError('请填写任务标题和大于零的赏金');
       return;
     }
     setSubmitting(true);
@@ -192,70 +189,62 @@ function PublishTaskModal({ categories, onClose, onPublished }) {
       });
       onPublished();
     } catch (e) {
-      setError(e?.message || '发布失败，请先登录或稍后再试');
+      setError(e);
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white w-full max-w-lg p-9 shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h3 className="text-xl font-bold text-gray-800">发布跑腿任务</h3>
-          <button onClick={onClose} className="w-9 h-9 text-gray-300 hover:text-gray-500 hover:bg-gray-50 text-lg transition-colors">✕</button>
-        </div>
+    <Modal title="发布跑腿任务" onClose={onClose} busy={submitting}>
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-2.5">任务标题</label>
-            <input type="text" value={form.title} onChange={update('title')} placeholder="例如：帮取快递" className="input" />
+            <label htmlFor="task-title" className="block text-sm font-medium text-gray-600 mb-2.5">任务标题</label>
+            <input id="task-title" type="text" value={form.title} onChange={update('title')} placeholder="例如：帮取快递" className="input" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-2.5">任务分类</label>
-            <select value={form.category} onChange={update('category')} className="input">
+            <label htmlFor="task-category" className="block text-sm font-medium text-gray-600 mb-2.5">任务分类</label>
+            <select id="task-category" value={form.category} onChange={update('category')} className="input">
               {categories.map((cat) => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-2.5">任务描述</label>
-            <textarea rows={3} value={form.description} onChange={update('description')} placeholder="详细描述你的需求..." className="input resize-none" />
+            <label htmlFor="task-description" className="block text-sm font-medium text-gray-600 mb-2.5">任务描述</label>
+            <textarea id="task-description" rows={3} value={form.description} onChange={update('description')} placeholder="详细描述你的需求..." className="input resize-none" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2.5">取件地点</label>
-              <input type="text" value={form.pickupLocation} onChange={update('pickupLocation')} placeholder="菜鸟驿站" className="input" />
+              <label htmlFor="task-pickup" className="block text-sm font-medium text-gray-600 mb-2.5">取件地点</label>
+              <input id="task-pickup" type="text" value={form.pickupLocation} onChange={update('pickupLocation')} placeholder="菜鸟驿站" className="input" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2.5">送达地点</label>
-              <input type="text" value={form.deliveryLocation} onChange={update('deliveryLocation')} placeholder="6号宿舍楼" className="input" />
+              <label htmlFor="task-delivery" className="block text-sm font-medium text-gray-600 mb-2.5">送达地点</label>
+              <input id="task-delivery" type="text" value={form.deliveryLocation} onChange={update('deliveryLocation')} placeholder="6号宿舍楼" className="input" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2.5">赏金 (元)</label>
-              <input type="number" value={form.reward} onChange={update('reward')} placeholder="5" className="input" />
+              <label htmlFor="task-reward" className="block text-sm font-medium text-gray-600 mb-2.5">赏金 (元)</label>
+              <input id="task-reward" min="0.01" step="0.01" type="number" value={form.reward} onChange={update('reward')} placeholder="5" className="input" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2.5">截止时间</label>
-              <input type="datetime-local" value={form.deadline} onChange={update('deadline')} className="input" />
+              <label htmlFor="task-deadline" className="block text-sm font-medium text-gray-600 mb-2.5">截止时间</label>
+              <input id="task-deadline" type="datetime-local" value={form.deadline} onChange={update('deadline')} className="input" />
             </div>
           </div>
-          {error && (
-            <div className="text-sm text-red-500 bg-red-50 px-4 py-2.5">{error}</div>
-          )}
+          <ErrorNotice error={error} />
           <div className="flex justify-end gap-3 pt-2">
-            <button onClick={onClose} className="btn-ghost">取消</button>
+            <button onClick={onClose} disabled={submitting} className="btn-ghost">取消</button>
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              className="px-8 py-2.5 bg-gradient-to-r from-campus-400 to-sky-400 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-60"
+              className="btn-primary"
             >
               {submitting ? '发布中...' : '发布任务'}
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

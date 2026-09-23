@@ -31,12 +31,7 @@
   --color-pink-500: #ec4899;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
+@layer base {
 html {
   scroll-behavior: smooth;
 }
@@ -52,6 +47,30 @@ body {
   -webkit-font-smoothing: antialiased;
   color: #374151;
 }
+
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:not(:disabled), a { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid #c2410c; outline-offset: 3px; }
+}
+
+@layer components {
+.page-container, .nav-container {
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+.page-container { padding-block: 32px; }
+@media (min-width: 768px) {
+  .page-container, .nav-container { padding-inline: 24px; }
+}
+@media (min-width: 1024px) {
+  .page-container, .nav-container { padding-inline: 32px; }
+}
+.page-container { overflow-wrap: anywhere; }
+.page-container .text-gray-400 { color: #6b7280; }
+.page-container .text-gray-300 { color: #6b7280; }
 
 /* 滚动条 */
 ::-webkit-scrollbar {
@@ -118,12 +137,12 @@ body {
   background: white;
   border-radius: 0;
   border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  box-shadow: none;
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
 .card-hover:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   border-color: rgba(0, 0, 0, 0.06);
   box-shadow: 0 12px 32px rgba(16, 24, 40, 0.08);
 }
@@ -134,7 +153,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  background: linear-gradient(135deg, #fb923c, #f472b6);
+  background: #c2410c;
   color: white;
   border-radius: 0;
   padding: 0.7rem 1.6rem;
@@ -143,7 +162,7 @@ body {
   transition: all 0.2s;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(244, 114, 182, 0.25);
+  box-shadow: none;
 }
 .btn-primary:hover {
   transform: translateY(-2px);
@@ -186,7 +205,7 @@ body {
   gap: 0.2rem;
   padding: 0.25rem 0.7rem;
   border-radius: 0;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -232,4 +251,14 @@ body {
   font-weight: 700;
   color: #1f2937;
   letter-spacing: -0.01em;
+}
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

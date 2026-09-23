@@ -3,15 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import useApiData from '../hooks/useApiData';
 import { studentApi, uploadApi } from '../services';
-import { mockUser } from '../services/mockData';
-
-const fallbackStats = {
-  postCount: 23,
-  productCount: 6,
-  favoriteCount: 45,
-  followerCount: 128,
-  followeeCount: 56,
-};
+import { Loading, Empty, DataStatus, ErrorNotice, LoginPrompt, Modal } from '../components/ui';
 
 const statCards = [
   { key: 'postCount', label: '帖子', icon: '📝' },
@@ -31,24 +23,35 @@ const menuItems = [
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, isAuthed, logout, updateUser } = useAuth();
+  const { user, token, isAuthed, logout, updateUser, loading: userLoading, error: userError, refetchUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
 
-  const { data: stats } = useApiData(() => studentApi.getStats(), fallbackStats, [], (p) => p || fallbackStats);
-
-  const profile = user || mockUser;
+  const statsState = useApiData(() => isAuthed ? studentApi.getStats() : Promise.resolve({ data: null }), null, [token]);
+  const { data: stats } = statsState;
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate('/login');
+    } catch {
+      navigate('/login', { state: { notice: '本地已退出，服务端退出未确认。' } });
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+  if (!isAuthed) return <div className="page-container"><LoginPrompt /></div>;
+  if (userLoading && !user) return <div className="page-container"><Loading rows={2} /></div>;
+  if (!user) return <div className="page-container"><ErrorNotice error={userError} onRetry={refetchUser} />{!userError && <><Empty title="个人资料暂不可用" /><button onClick={refetchUser} className="btn-ghost mt-4">重试</button></>}</div>;
+  const profile = user;
   const avatarChar = profile.nickName?.[0] || 'C';
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   return (
-    <div className="max-w-4xl 2xl:max-w-6xl mx-auto px-6 md:px-10 2xl:px-[6vw] py-14">
+    <div className="page-container">
       {/* User Card */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-primary-400 via-pink-400 to-sky-400 p-12 mb-10 text-white shadow-lg shadow-primary-100/50">
-        <div className="relative z-10 flex items-center gap-7">
+      <div className="relative overflow-hidden bg-gradient-to-br from-orange-700 to-rose-700 p-6 sm:p-8 mb-6 text-white">
+        <div className="relative z-10 flex flex-wrap items-center gap-5">
           <div className="w-24 h-24 bg-white/20 backdrop-blur flex items-center justify-center text-5xl shrink-0 border border-white/30">
             {profile.avatar ? (
               <img src={profile.avatar} alt="avatar" className="w-full h-full object-cover" />
@@ -70,19 +73,21 @@ export default function Profile() {
         <div className="absolute -right-6 -bottom-6 text-9xl opacity-10">🎓</div>
       </div>
 
+      <ErrorNotice error={userError} onRetry={refetchUser} stale />
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-10">
+      <DataStatus {...statsState} label="个人统计" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-6">
         {statCards.map((s) => (
           <div key={s.key} className="card card-hover p-6 text-center">
             <div className="text-2xl mb-2">{s.icon}</div>
-            <div className="text-2xl font-bold text-gray-800">{stats[s.key] ?? 0}</div>
+            <div className="text-2xl font-bold text-gray-800">{stats?.[s.key] ?? '—'}</div>
             <div className="text-xs text-gray-400 mt-1.5">{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Menu */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-10">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
         {menuItems.map((item, index) => (
           <Link
             key={index}
@@ -103,17 +108,11 @@ export default function Profile() {
       <div className="flex gap-4">
         <button onClick={() => setShowSettings(true)} className="btn-ghost flex-1">⚙️ 账号设置</button>
         {isAuthed && (
-          <button onClick={handleLogout} className="flex-1 px-6 py-2.5 text-sm font-medium text-red-500 bg-white border border-gray-100 hover:bg-red-50 hover:border-red-100 transition-colors">
-            🚪 退出登录
+          <button onClick={handleLogout} disabled={loggingOut} className="flex-1 px-6 py-2.5 text-sm font-medium text-red-500 bg-white border border-gray-100 hover:bg-red-50 hover:border-red-100 transition-colors">
+            {loggingOut ? '正在退出…' : '🚪 退出登录'}
           </button>
         )}
       </div>
-
-      {!isAuthed && (
-        <p className="text-center text-sm text-gray-400 mt-8">
-          当前为游客预览 · <Link to="/login" className="text-primary-500 font-medium hover:underline">登录</Link> 查看你的真实数据
-        </p>
-      )}
 
       {showSettings && (
         <SettingsModal
@@ -146,15 +145,17 @@ function SettingsModal({ profile, isAuthed, onClose, onSaved }) {
 
   // 头像上传
   const handleAvatarUpload = async (e) => {
+    if (uploading || submitting) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setError('');
     setUploading(true);
     try {
       const res = await uploadApi.upload(file, 'avatar');
-      setForm({ ...form, avatar: res?.data });
+      if (!res?.data) throw new Error('上传未返回头像地址');
+      setForm((prev) => ({ ...prev, avatar: res.data }));
     } catch (err) {
-      setError('头像上传失败: ' + (err?.message || '请重试'));
+      setError(err);
     } finally {
       setUploading(false);
       // 清空 input 以便重复选择同一文件
@@ -163,6 +164,7 @@ function SettingsModal({ profile, isAuthed, onClose, onSaved }) {
   };
 
   const handleSubmit = async () => {
+    if (uploading || submitting) return;
     setError('');
     if (!isAuthed) {
       setError('请先登录后再修改资料');
@@ -177,22 +179,17 @@ function SettingsModal({ profile, isAuthed, onClose, onSaved }) {
       const res = await studentApi.updateInfo(form);
       onSaved(res?.data || form);
     } catch (e) {
-      setError(e?.message || '保存失败，请稍后再试');
+      setError(e);
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white w-full max-w-lg p-9 shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h3 className="text-xl font-bold text-gray-800">账号设置</h3>
-          <button onClick={onClose} className="w-9 h-9 text-gray-300 hover:text-gray-500 hover:bg-gray-50 text-lg transition-colors">✕</button>
-        </div>
+    <Modal title="账号设置" onClose={onClose} busy={submitting || uploading}>
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-2.5">昵称</label>
-            <input type="text" value={form.nickName} onChange={update('nickName')} placeholder="你的昵称" className="input" />
+            <label htmlFor="profile-name" className="block text-sm font-medium text-gray-600 mb-2.5">昵称</label>
+            <input id="profile-name" type="text" value={form.nickName} onChange={update('nickName')} placeholder="你的昵称" className="input" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-2.5">头像</label>
@@ -210,6 +207,7 @@ function SettingsModal({ profile, isAuthed, onClose, onSaved }) {
                   type="file"
                   accept="image/jpeg,image/png,image/gif,image/webp"
                   onChange={handleAvatarUpload}
+                  disabled={submitting || uploading}
                   className="hidden"
                   id="avatar-upload"
                 />
@@ -233,25 +231,22 @@ function SettingsModal({ profile, isAuthed, onClose, onSaved }) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2.5">学院</label>
-              <input type="text" value={form.college} onChange={update('college')} placeholder="计算机学院" className="input" />
+              <label htmlFor="profile-college" className="block text-sm font-medium text-gray-600 mb-2.5">学院</label>
+              <input id="profile-college" type="text" value={form.college} onChange={update('college')} placeholder="计算机学院" className="input" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2.5">专业</label>
-              <input type="text" value={form.major} onChange={update('major')} placeholder="软件工程" className="input" />
+              <label htmlFor="profile-major" className="block text-sm font-medium text-gray-600 mb-2.5">专业</label>
+              <input id="profile-major" type="text" value={form.major} onChange={update('major')} placeholder="软件工程" className="input" />
             </div>
           </div>
-          {error && (
-            <div className="text-sm text-red-500 bg-red-50 px-4 py-2.5">{error}</div>
-          )}
+          <ErrorNotice error={error} />
           <div className="flex justify-end gap-3 pt-2">
-            <button onClick={onClose} className="btn-ghost">取消</button>
-            <button onClick={handleSubmit} disabled={submitting} className="btn-primary px-8">
+            <button onClick={onClose} disabled={submitting || uploading} className="btn-ghost">取消</button>
+            <button onClick={handleSubmit} disabled={submitting || uploading} className="btn-primary px-8">
               {submitting ? '保存中...' : '保存'}
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

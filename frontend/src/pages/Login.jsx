@@ -1,10 +1,15 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { studentApi } from '../services';
+import { ErrorNotice } from '../components/ui';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [sending, setSending] = useState(false);
+  const countdownTimer = useRef(null);
+  useEffect(() => () => clearInterval(countdownTimer.current), []);
   const { login } = useAuth();
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -13,11 +18,12 @@ export default function Login() {
   const [error, setError] = useState('');
 
   const startCountdown = () => {
+    clearInterval(countdownTimer.current);
     setCountdown(60);
-    const timer = setInterval(() => {
+    countdownTimer.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          clearInterval(countdownTimer.current);
           return 0;
         }
         return prev - 1;
@@ -26,17 +32,20 @@ export default function Login() {
   };
 
   const handleSendCode = async () => {
+    if (sending || countdown > 0) return;
     setError('');
     if (!/^1\d{10}$/.test(phone)) {
       setError('请输入正确的 11 位手机号');
       return;
     }
+    setSending(true);
     try {
       await studentApi.sendCode(phone);
       startCountdown();
     } catch (e) {
-      // 后端未启动时也允许进入倒计时，方便演示
-      startCountdown();
+      setError(e);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -56,17 +65,11 @@ export default function Login() {
       const res = await studentApi.login({ phone, code });
       const token = res?.data;
       if (!token) throw new Error('登录失败');
-      let user = null;
-      try {
-        const me = await studentApi.getMe();
-        user = me?.data || null;
-      } catch (_) {
-        /* 忽略获取用户信息失败 */
-      }
-      login(token, user);
+      // 先存入令牌，再由 AuthProvider 携带新令牌获取用户资料。
+      login(token, null);
       navigate('/');
     } catch (err) {
-      setError(err?.message || '登录失败，请检查验证码');
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -95,13 +98,14 @@ export default function Login() {
         </div>
 
         {/* 登录卡片（毛玻璃仅限登录卡片） */}
-        <div className="bg-white/80 backdrop-blur-lg shadow-xl shadow-primary-100/40 p-10 border border-white/60">
+        <div className="bg-white/80 backdrop-blur-lg shadow-xl shadow-primary-100/40 p-6 sm:p-8 border border-white/60">
           <h2 className="text-2xl font-bold text-center text-gray-800 mb-8">欢迎回来 👋</h2>
 
+          {location.state?.notice && <p role="status" className="bg-amber-50 text-amber-800 p-3 mb-4 text-sm">{location.state.notice}</p>}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2">手机号</label>
-              <input
+              <label htmlFor="login-phone" className="block text-sm font-medium text-gray-600 mb-2">手机号</label>
+              <input id="login-phone" autoComplete="tel"
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
@@ -112,36 +116,35 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2">验证码</label>
+              <label htmlFor="login-code" className="block text-sm font-medium text-gray-600 mb-2">验证码</label>
               <div className="flex gap-3">
                 <input
+                  id="login-code"
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   placeholder="6 位验证码"
                   maxLength={6}
-                  className="input flex-1"
+                  className="input flex-1 min-w-0"
                 />
                 <button
                   type="button"
                   onClick={handleSendCode}
-                  disabled={countdown > 0}
+                  disabled={countdown > 0 || sending}
                   className={`shrink-0 px-5 text-sm font-medium transition-all whitespace-nowrap ${
                     countdown > 0
                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
                   }`}
                 >
-                  {countdown > 0 ? `${countdown}s` : '获取验证码'}
+                  {sending ? '发送中…' : countdown > 0 ? `${countdown}s` : '获取验证码'}
                 </button>
               </div>
             </div>
 
-            {error && (
-              <div className="text-sm text-red-500 bg-red-50 px-4 py-2.5 animate-fade-in">
-                {error}
-              </div>
-            )}
+            <ErrorNotice error={error} />
 
             <button type="submit" disabled={submitting} className="btn-primary w-full py-3.5 text-base">
               {submitting ? '登录中...' : '登录 / 注册'}
